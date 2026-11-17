@@ -1,0 +1,39 @@
+name: Compile Check (AI Column)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev/ai-column]
+
+jobs:
+  grammar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bison grammar check
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bison
+          bison --defines=/tmp/tab.h --output=/tmp/tab.c src/sql/parser/sql_parser_mysql_mode.y 2>&1 | tee /tmp/bison.log
+          if grep -qE "error:|conflict" /tmp/bison.log; then echo "GRAMMAR ERROR"; exit 1; fi
+          echo "GRAMMAR OK"
+
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    needs: grammar
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3 cmake ninja-build clang lld \
+            libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+            curl wget git bison flex unzip xz-utils
+      - name: Init & Build
+        run: |
+          python3 build.py init || true
+          python3 build.py build seekdb -j 4 2>&1 | tee /tmp/build.log
+          if grep -qE "error:|Build did NOT complete" /tmp/build.log; then
+            echo "BUILD FAILED"; grep -E "error:|Build did NOT" /tmp/build.log | head -30; exit 1
+          fi
+          echo "BUILD OK"
