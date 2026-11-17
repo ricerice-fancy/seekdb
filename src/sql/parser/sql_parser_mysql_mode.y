@@ -295,6 +295,7 @@ END_P SET_VAR DELIMITER
 
         HASH HEAP HELP HISTOGRAM HOUR HIDDEN HYBRID HYBRID_HIST HYBRID_SEARCH
         READ_CSV READ_JSON READ_NDJSON READ_PARQUET GLOB
+        AI_COLUMN SYNC_MODE MAX_RETRIES RETRY
 
         IDENTIFIED IK_MODE ILOG IMMEDIATE IMPORT INCLUDING INCR INDEXES INFO
         INNODB INPLACE INSERT_METHOD INSTANT INSTANCE INVOKER IO IO_THREAD IPC ISOLATE ISOLATION ISSUER
@@ -397,6 +398,7 @@ END_P SET_VAR DELIMITER
 %type <node> update_basic_stmt delete_basic_stmt
 %type <node> table_element_list table_element column_definition column_definition_ref column_definition_list column_name_list
 %type <node> opt_generated_keyname opt_generated_option_list opt_generated_column_attribute_list generated_column_attribute opt_storage_type
+%type <node> ai_column_options ai_column_option_list ai_column_option retry_where_clause
 %type <node> data_type special_table_type opt_if_not_exists opt_if_exists opt_charset collation opt_collation cast_data_type
 %type <node> replace_with_opt_hint insert_with_opt_hint column_list opt_on_duplicate_key_clause opt_into opt_replace opt_temporary no_param_column_ref
 %type <node> insert_vals_list insert_vals value_or_values opt_insert_row_alias
@@ -4850,6 +4852,17 @@ column_definition_ref data_type opt_column_attribute_list opt_column_reference o
   merge_nodes(attributes, result, T_COLUMN_ATTRIBUTES, $10);
   malloc_non_terminal_node($$, result->malloc_pool_, T_COLUMN_DEFINITION, 7, $1, $2, attributes, $7, $9, $12, $4);
 }
+| column_definition_ref data_type opt_collation AI_COLUMN '(' expr ')' ai_column_options opt_position_column
+{
+  // AI column definition: 8 children (vs 4 normal / 7 generated column).
+  // [$1 name, $2 type, $3 collation, $6 AI expr, $8 WITH options, $9 position, NULL, NULL]
+  ParseNode *attributes = NULL;
+  merge_nodes(attributes, result, T_COLUMN_ATTRIBUTES, NULL);
+  set_data_type_collation($2, $3, true, false);
+  dup_expr_string($6, result, @6.first_column, @6.last_column);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_COLUMN_DEFINITION, 8,
+                           $1, $2, attributes, $6, $8, $9, NULL, NULL);
+}
 | column_definition_ref SERIAL opt_column_attribute_list opt_position_column 
 {
   ParseNode *unsigned_bigint_type = NULL;
@@ -4999,6 +5012,60 @@ VIRTUAL
 | /*empty*/
 {
   $$ = NULL;
+}
+;
+
+/* AI column WITH options: WITH (sync_mode='async', max_retries=2) */
+ai_column_options:
+WITH '(' ai_column_option_list ')'
+{
+  merge_nodes($$, result, T_AI_COLUMN_OPTION, $3);
+}
+| /*empty*/
+{
+  $$ = NULL;
+}
+;
+
+ai_column_option_list:
+ai_column_option
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LIST, 1, $1);
+}
+| ai_column_option_list ',' ai_column_option
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LIST, 2, $1, $3);
+}
+;
+
+retry_where_clause:
+WHERE expr
+{
+  $$ = $2;
+  dup_expr_string($2, result, @2.first_column, @2.last_column);
+}
+| /*empty*/
+{
+  $$ = NULL;
+}
+;
+
+ai_column_option:
+SYNC_MODE '=' STRING_VALUE
+{
+  ParseNode *key = NULL;
+  malloc_terminal_node(key, result->malloc_pool_, T_IDENT);
+  key->str_value_ = (char*)"sync_mode";
+  key->str_len_ = 9;
+  malloc_non_terminal_node($$, result->malloc_pool_, T_AI_COLUMN_OPTION, 2, key, $3);
+}
+| MAX_RETRIES '=' INTNUM
+{
+  ParseNode *key = NULL;
+  malloc_terminal_node(key, result->malloc_pool_, T_IDENT);
+  key->str_value_ = (char*)"max_retries";
+  key->str_len_ = 11;
+  malloc_non_terminal_node($$, result->malloc_pool_, T_AI_COLUMN_OPTION, 2, key, $3);
 }
 ;
 
@@ -12663,6 +12730,11 @@ SHOW opt_extended_or_full TABLES opt_from_or_in_database_clause opt_show_conditi
   $$->value_ = $2[0];
   malloc_non_terminal_node($$, result->malloc_pool_, T_SHOW_COLUMNS, 4, $$, $5, $6, $7);
 }
+| SHOW AI COLUMNS from_or_in relation_factor
+{
+  // T_SHOW_AI_COLUMNS: [table_name]
+  malloc_non_terminal_node($$, result->malloc_pool_, T_SHOW_AI_COLUMNS, 1, $4);
+}
 | SHOW TABLE STATUS opt_from_or_in_database_clause opt_show_condition
 { malloc_non_terminal_node($$, result->malloc_pool_, T_SHOW_TABLE_STATUS, 2, $4, $5); }
 | SHOW PROCEDURE STATUS opt_from_or_in_database_clause opt_show_condition
@@ -14721,6 +14793,11 @@ opt_set table_option_list_space_seperated
 | alter_column_option
 {
   malloc_non_terminal_node($$, result->malloc_pool_, T_ALTER_COLUMN_OPTION, 1, $1);
+}
+| RETRY AI COLUMN column_definition_ref retry_where_clause
+{
+  // T_RETRY_AI_COLUMN: [column_name, where_clause]
+  malloc_non_terminal_node($$, result->malloc_pool_, T_RETRY_AI_COLUMN, 2, $4, $5);
 }
 | RENAME opt_to relation_factor
 {
