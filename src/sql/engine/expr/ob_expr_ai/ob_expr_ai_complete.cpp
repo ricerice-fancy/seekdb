@@ -155,6 +155,7 @@ int ObExprAIComplete::eval_ai_complete(const ObExpr &expr,
       ObAIFuncModel model(temp_allocator, *info, *endpoint_info);
       ObString result;
       if (OB_FAIL(model.call_completion(prompt, config, result))) {
+        LOG_WARN("ai_complete call_completion failed", K(ret), K(model_id));
       } else if (result.empty()) {
         // An empty model response is invalid and must not be returned as a
         // successful (empty) completion.
@@ -162,6 +163,7 @@ int ObExprAIComplete::eval_ai_complete(const ObExpr &expr,
         LOG_USER_ERROR(OB_INVALID_DATA, "ai_complete, empty response from model");
         res.set_null();
       } else if (OB_FAIL(ObAIFuncUtils::set_string_result(expr, ctx, res, result))) {
+        LOG_WARN("ai_complete set_string_result failed", K(ret), K(result.length()));
       }
     }
   }

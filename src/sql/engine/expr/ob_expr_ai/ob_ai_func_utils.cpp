@@ -407,7 +407,10 @@ int ObOllamaUtils::ObOllamaComplete::parse_output(common::ObIAllocator &allocato
   if (OB_ISNULL(http_response)) {
     ret = OB_INVALID_ARGUMENT;
   } else {
-    ret = select_response(allocator, *http_response, ObString("$.response"), OB_ERR_UNEXPECTED, result);
+    ret = select_response(allocator, *http_response, ObString("$.response"), OB_INVALID_DATA, result);
+    if (OB_FAIL(ret)) {
+      LOG_WARN("ollama complete parse_output failed", K(ret));
+    }
   }
   return ret;
 }
