@@ -187,6 +187,8 @@ SQL_INTERFACE_CLOSURE_HEADERS = [
     "dtl/ob_dtl_task.h",
     "dtl/ob_op_metric.h",
     "engine/aggregate/ob_adaptive_bypass_ctrl.h",
+    "engine/expr/ob_expr_read_file_json.h",
+    "engine/basic/ob_file_scan_utils.h",
     "engine/basic/chunk_store/ob_block_ireader.h",
     "engine/basic/chunk_store/ob_block_iwriter.h",
     "engine/basic/chunk_store/ob_chunk_block.h",

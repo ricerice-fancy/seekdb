@@ -17,6 +17,7 @@
 #define USING_LOG_PREFIX SQL_RESV
 #include "rust/config.h"
 #include <inttypes.h>
+#include <cstdio>
 #include "ob_dml_resolver.h"
 #include "sql/resolver/dml/ob_view_table_resolver.h"
 #include "sql/optimizer/ob_optimizer_util.h"
@@ -2725,6 +2726,14 @@ int ObDMLResolver::resolve_table(const ParseNode &parse_tree,
         }
         break;
       }
+      case T_READ_CSV_EXPRESSION:
+      case T_READ_JSON_EXPRESSION:
+      case T_READ_PARQUET_EXPRESSION:
+      case T_GLOB_EXPRESSION: {
+        if (OB_FAIL(resolve_file_scan_item(*table_node, table_item))) {
+        }
+        break;
+      }
       default:
         /* won't be here */
         ret = OB_ERR_PARSER_SYNTAX;
@@ -3763,6 +3772,189 @@ int ObDMLResolver::resolve_hybrid_search_item(const ParseNode &parse_tree, Table
 
   if (OB_SUCC(ret) && OB_NOT_NULL(params_.query_ctx_)) {
     params_.query_ctx_->has_hybrid_search_ = true;
+  }
+  return ret;
+}
+
+int ObDMLResolver::resolve_file_scan_item(const ParseNode &parse_tree, TableItem *&tbl_item)
+{
+  int ret = common::OB_SUCCESS;
+  ParseNode *path_node = NULL;
+  ParseNode *options_node = NULL;
+  ParseNode *alias_node = NULL;
+  common::ObString path;
+  common::ObString options;
+  const bool is_glob = (T_GLOB_EXPRESSION == parse_tree.type_);
+
+  if (parse_tree.num_child_ < 2) {
+    ret = common::OB_ERR_UNEXPECTED;
+  } else {
+    path_node = parse_tree.children_[0];
+    options_node = parse_tree.children_[1];
+    alias_node = parse_tree.children_[parse_tree.num_child_ - 1];
+  }
+  if (OB_FAIL(ret)) {
+  } else if (OB_ISNULL(path_node) || OB_ISNULL(path_node->str_value_)) {
+    ret = common::OB_INVALID_ARGUMENT;
+  } else {
+    path.assign_ptr(path_node->str_value_, static_cast<int32_t>(path_node->str_len_));
+    if (OB_NOT_NULL(options_node) && OB_NOT_NULL(options_node->str_value_)) {
+      options.assign_ptr(options_node->str_value_, static_cast<int32_t>(options_node->str_len_));
+    }
+  }
+
+  // Build the JSON_TABLE expression SQL. Column names come from the CSV header;
+  // for glob we expose a single `file` column.
+  char *sql_buf = NULL;
+  int64_t pos = 0;
+  if (OB_FAIL(ret)) {
+  } else if (OB_ISNULL(sql_buf = static_cast<char *>(
+                 allocator_->alloc(64 * 1024)))) {
+    ret = common::OB_ALLOCATE_MEMORY_FAILED;
+  } else {
+    const char *fmt = (T_READ_CSV_EXPRESSION == parse_tree.type_) ? "csv"
+                      : (T_READ_JSON_EXPRESSION == parse_tree.type_) ? "json" : "parquet";
+    if (is_glob) {
+      // glob returns one column `file`; reuse a trivial JSON_TABLE over a
+      // literal array produced by read_file_json with format "glob".
+      fmt = "glob";
+    }
+    // Escape single quotes in path for SQL literal
+    int64_t p = 0;
+    const char *q = sql_buf + pos;
+    // SELECT * FROM JSON_TABLE(read_file_json('<path>','<fmt>','<opts>'),
+    //   '$[*]' COLUMNS (col_0 VARCHAR(65535) PATH '$.col_0' NULL ON EMPTY ...))
+    pos += snprintf(sql_buf + pos, 64 * 1024 - pos,
+                    "SELECT * FROM JSON_TABLE(read_file_json('%.*s','%s','%.*s'), '$[*]' COLUMNS (" ,
+                    static_cast<int>(path.length()), path.ptr(), fmt,
+                    static_cast<int>(options.length()), options.ptr());
+    (void)p; (void)q;
+    if (is_glob) {
+      // glob: read_file_json returns [{"file":"..."},...]
+      pos += snprintf(sql_buf + pos, 64 * 1024 - pos,
+                      "file VARCHAR(65535) PATH '$.file')) AS jt");
+    } else {
+      // Determine column count from the file header (best-effort; default 8).
+      int64_t ncols = 8;
+      FILE *fp = NULL;
+      char *path_z = static_cast<char *>(allocator_->alloc(path.length() + 1));
+      if (OB_NOT_NULL(path_z)) {
+        MEMCPY(path_z, path.ptr(), path.length());
+        path_z[path.length()] = '\0';
+        fp = fopen(path_z, "r");
+      }
+      char header[8192];
+      header[0] = '\0';
+      if (OB_NOT_NULL(fp)) {
+        if (OB_NOT_NULL(fgets(header, sizeof(header), fp))) {
+          int64_t cnt = 1;
+          for (char *c = header; *c; c++) { if (*c == ',') { cnt++; } }
+          if (cnt > 0 && cnt <= 256) { ncols = cnt; }
+        }
+        fclose(fp);
+      }
+      // Parse column names. CSV: header fields. JSON/NDJSON: extract "key":
+      // tokens from the first object. Parquet: fall back to col_N.
+      char col_names[256][256];
+      int64_t nnames = 0;
+      const bool json_fmt = (T_READ_JSON_EXPRESSION == parse_tree.type_);
+      if (json_fmt && header[0] == '{') {
+        // extract JSON object keys: "name": value
+        char *cursor = header;
+        while (*cursor && nnames < 256) {
+          // key is a quoted token preceded by '{' or ',' (ignoring spaces)
+          char *q1 = strchr(cursor, '"');
+          if (OB_ISNULL(q1)) { break; }
+          // verify it is a key (next non-space after closing quote is ':')
+          char *q2 = strchr(q1 + 1, '"');
+          if (OB_ISNULL(q2)) { break; }
+          char *after = q2 + 1;
+          while (*after == ' ' || *after == '\t') { after++; }
+          if (*after != ':') {
+            // this was a value; skip to next comma or end
+            char *comma = strchr(after, ',');
+            if (OB_ISNULL(comma)) { break; }
+            cursor = comma + 1;
+            continue;
+          }
+          const int64_t kl = q2 - q1 - 1;
+          if (kl > 0 && kl < 256) {
+            MEMCPY(col_names[nnames], q1 + 1, static_cast<size_t>(kl));
+            col_names[nnames][kl] = '\0';
+            nnames++;
+          }
+          // skip value: advance past ':'; if a quote follows, skip that string
+          cursor = after + 1;
+          while (*cursor == ' ') { cursor++; }
+          if (*cursor == '"') {
+            char *vend = strchr(cursor + 1, '"');
+            cursor = OB_ISNULL(vend) ? cursor + 1 : vend + 1;
+          } else {
+            // number/bool/null: skip to comma or '}'
+            while (*cursor && *cursor != ',' && *cursor != '}') { cursor++; }
+          }
+          if (*cursor == ',') { cursor++; }
+        }
+        if (nnames > 0) { ncols = nnames; }
+      } else {
+        for (char *tok = header; *tok && nnames < ncols; ) {
+          char *e = tok;
+          while (*e && *e != ',' && *e != '\n' && *e != '\r') { e++; }
+          int64_t l = e - tok;
+          while (l > 0 && (tok[0] == ' ' || tok[0] == '"' || tok[0] == '\'')) { tok++; l--; }
+          while (l > 0 && (tok[l-1] == ' ' || tok[l-1] == '"' || tok[l-1] == '\'')) { l--; }
+          if (l > 0 && l < 256) {
+            MEMCPY(col_names[nnames], tok, static_cast<size_t>(l));
+            col_names[nnames][l] = '\0';
+          } else {
+            snprintf(col_names[nnames], sizeof(col_names[nnames]), "col_%ld", nnames);
+          }
+          nnames++;
+          if (!*e) break;
+          tok = e + 1;
+        }
+      }
+      for (int64_t i = 0; OB_SUCC(ret) && i < ncols; i++) {
+        const char *cname = (i < nnames) ? col_names[i] : "col";
+        const int64_t written = snprintf(sql_buf + pos, 64 * 1024 - pos,
+                          "%s`%s` VARCHAR(65535) PATH '$.%s'",
+                          i > 0 ? ", " : "", cname, cname);
+        if (written < 0 || pos + written >= 64 * 1024) {
+          ret = common::OB_BUF_NOT_ENOUGH;
+        } else {
+          pos += written;
+        }
+      }
+      if (OB_SUCC(ret)) {
+        pos += snprintf(sql_buf + pos, 64 * 1024 - pos, ")) AS jt");
+      }
+    }
+  }
+
+  // Parse the generated SQL and wrap as a subquery (hybrid_search pattern).
+  common::ObString rewritten_sql(static_cast<int32_t>(pos), sql_buf);
+  if (OB_FAIL(ret)) {
+  } else {
+    ObParser parser(*allocator_, session_info_->get_sql_mode(),
+                    session_info_->get_charsets4parser());
+    ParseResult parse_result;
+    if (OB_FAIL(parser.parse(rewritten_sql, parse_result))) {
+      LOG_WARN("parse rewritten file scan sql failed", K(ret), K(rewritten_sql));
+    } else if (OB_ISNULL(parse_result.result_tree_)) {
+      ret = common::OB_ERR_PARSER_SYNTAX;
+    } else {
+      // wrap as T_ALIAS(subquery_select, alias)
+      ParseNode *wrapper = NULL;
+      if (OB_ISNULL(wrapper = new_node(allocator_, T_ALIAS, 2))) {
+        ret = common::OB_ALLOCATE_MEMORY_FAILED;
+      } else {
+        wrapper->children_[0] = parse_result.result_tree_->children_[0];
+        wrapper->children_[1] = alias_node;
+        if (OB_FAIL(ObDMLResolver::resolve_table(*wrapper, tbl_item))) {
+          LOG_WARN("resolve rewritten file scan table failed", K(ret));
+        }
+      }
+    }
   }
   return ret;
 }

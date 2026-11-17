@@ -868,6 +868,7 @@ typedef enum ObItemType
   T_FUN_SYS_FORMAT_PROFILE = 1927, // format query profile
   T_FUN_SYS_EMBEDDED_VEC = 1928,
   T_FUN_SYS_AI_PROMPT = 1929,
+  T_FUN_SYS_READ_FILE_JSON = 2087,
   T_FUN_SYS_VEC_VISIBLE = 1930, // vector index table 5
 
   ///< @note add new sys function type before this line
@@ -2274,6 +2275,11 @@ typedef enum ObItemType
   T_DIFF_TABLE = 4918,
   T_MERGE_TABLE = 4919,
   T_FLUSH_PRIVILEGES = 4920,
+  T_READ_CSV_EXPRESSION = 4921,
+  T_READ_JSON_EXPRESSION = 4922,
+  T_READ_PARQUET_EXPRESSION = 4923,
+  T_GLOB_EXPRESSION = 4924,
+  T_COPY_TO_EXPRESSION = 4925,
   T_MAX //Attention: add a new type before T_MAX
 } ObItemType;
 

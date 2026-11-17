@@ -249,6 +249,7 @@
 #include "sql/engine/expr/ob_expr_json_contains.h"
 #include "sql/engine/expr/ob_expr_json_contains_path.h"
 #include "sql/engine/expr/ob_expr_json_depth.h"
+#include "sql/engine/expr/ob_expr_read_file_json.h"
 #include "sql/engine/expr/ob_expr_json_keys.h"
 #include "sql/engine/expr/ob_expr_json_search.h"
 #include "sql/engine/expr/ob_expr_json_unquote.h"
@@ -796,6 +797,7 @@ void ObExprOperatorFactory::register_expr_operators()
     REG_OP(ObExprJsonContains);
     REG_OP(ObExprJsonContainsPath);
     REG_OP(ObExprJsonDepth);
+    REG_OP(ObExprReadFileJson);
     REG_OP(ObExprJsonKeys);
     REG_OP(ObExprJsonQuote);
     REG_OP(ObExprJsonUnquote);

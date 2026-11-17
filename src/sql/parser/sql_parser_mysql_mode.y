@@ -294,6 +294,7 @@ END_P SET_VAR DELIMITER
         GLOBAL_ALIAS
 
         HASH HEAP HELP HISTOGRAM HOUR HIDDEN HYBRID HYBRID_HIST HYBRID_SEARCH
+        READ_CSV READ_JSON READ_NDJSON READ_PARQUET GLOB
 
         IDENTIFIED IK_MODE ILOG IMMEDIATE IMPORT INCLUDING INCR INDEXES INFO
         INNODB INPLACE INSERT_METHOD INSTANT INSTANCE INVOKER IO IO_THREAD IPC ISOLATE ISOLATION ISSUER
@@ -511,6 +512,7 @@ END_P SET_VAR DELIMITER
 %type <node> column_list_with_boost with_param_column_ref
 %type <node> es_sql_opt
 %type <node> hybrid_search_expr hybrid_search_param
+%type <node> read_csv_expr read_json_expr read_parquet_expr glob_expr
 %type <node> vector_similarity_expr vector_similarity_metric
 %type <node> algorithm_opt lock_opt
 %type <node> flush_privileges_stmt opt_flush_privileges_scope
@@ -10847,6 +10849,22 @@ tbl_name
 {
   $$ = $1;
 }
+| read_csv_expr
+{
+  $$ = $1;
+}
+| read_json_expr
+{
+  $$ = $1;
+}
+| read_parquet_expr
+{
+  $$ = $1;
+}
+| glob_expr
+{
+  $$ = $1;
+}
 ;
 
 tbl_name:
@@ -17432,6 +17450,103 @@ literal
 | USER_VARIABLE
 {
   $$ = $1;
+}
+;
+
+/* ---- file_sql: read_csv / read_json / read_parquet / glob ---- */
+read_csv_expr:
+READ_CSV '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, NULL, $5);
+}
+| READ_CSV '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, NULL, $6);
+}
+| READ_CSV '(' literal ',' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, $5, $7);
+}
+| READ_CSV '(' literal ',' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, $5, $8);
+}
+| READ_CSV '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, NULL, alias_node);
+}
+| READ_CSV '(' literal ',' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, $5, alias_node);
+}
+;
+
+read_json_expr:
+READ_JSON '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, $5);
+}
+| READ_JSON '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, $6);
+}
+| READ_JSON '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, alias_node);
+}
+| READ_NDJSON '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, $5);
+}
+| READ_NDJSON '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, $6);
+}
+| READ_NDJSON '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, alias_node);
+}
+;
+
+read_parquet_expr:
+READ_PARQUET '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_PARQUET_EXPRESSION, 3, $3, NULL, $5);
+}
+| READ_PARQUET '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_PARQUET_EXPRESSION, 3, $3, NULL, $6);
+}
+| READ_PARQUET '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_PARQUET_EXPRESSION, 3, $3, NULL, alias_node);
+}
+;
+
+glob_expr:
+GLOB '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_GLOB_EXPRESSION, 2, $3, $5);
+}
+| GLOB '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_GLOB_EXPRESSION, 2, $3, $6);
+}
+| GLOB '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_GLOB_EXPRESSION, 2, $3, alias_node);
 }
 ;
 

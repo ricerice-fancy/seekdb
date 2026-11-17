@@ -894,6 +894,7 @@
 #define N_JSON_SCHEMA_VALID                 "json_schema_valid"
 #define N_JSON_SCHEMA_VALIDATION_REPORT     "json_schema_validation_report"
 #define N_JSON_DEPTH                        "json_depth"
+#define N_READ_FILE_JSON                     "read_file_json"
 #define N_JSON_KEYS                         "json_keys"
 #define N_JSON_ARRAY                        "json_array"
 #define N_JSON_QUOTE                        "json_quote"
