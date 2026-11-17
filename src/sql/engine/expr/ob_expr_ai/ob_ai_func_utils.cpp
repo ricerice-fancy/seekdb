@@ -342,10 +342,8 @@ int ObOllamaUtils::get_header(common::ObIAllocator &allocator,
 {
   int ret = OB_SUCCESS;
   // Ollama needs no API key, but the request still needs a JSON content type.
-  ObString content_type_str("Content-Type: application/json");
-  ObString content_type_c_str;
-  if (OB_FAIL(ob_write_string(allocator, content_type_str, content_type_c_str, true))) {
-  } else if (OB_FAIL(headers.push_back(content_type_c_str))) {
+  UNUSED(allocator);
+  if (OB_FAIL(headers.push_back(ObString("Content-Type: application/json")))) {
   }
   return ret;
 }

@@ -226,7 +226,11 @@ EndpointType::TYPE EndpointType::str_to_endpoint_type(const ObString &type_str)
 int ObAiModelEndpointInfo::get_unencrypted_access_key(common::ObIAllocator &allocator, ObString &unencrypted_access_key) const
 {
   int ret = OB_SUCCESS;
-  if (OB_FAIL(decrypt_access_key_(allocator, access_key_, unencrypted_access_key))) {
+  // A missing access key (Ollama and other keyless providers) is simply an
+  // empty key, not an error.
+  if (OB_ISNULL(access_key_.ptr()) || access_key_.empty()) {
+    unencrypted_access_key.reset();
+  } else if (OB_FAIL(decrypt_access_key_(allocator, access_key_, unencrypted_access_key))) {
   }
   return ret;
 }
