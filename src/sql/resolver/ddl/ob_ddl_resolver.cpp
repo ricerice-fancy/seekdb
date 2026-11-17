@@ -1910,6 +1910,63 @@ int ObDDLResolver::resolve_column_definition(ObColumnSchemaV2 &column,
       }
     }
   }
+  // AI COLUMN definition: 8 children, generated asynchronously after commit.
+  if (OB_SUCC(ret) && AI_COLUMN_DEFINITION_NUM_CHILD == node->num_child_) {
+    ParseNode *expr_node = node->children_[3];
+    if (OB_ISNULL(expr_node)) {
+      ret = OB_ERR_UNEXPECTED;
+    } else {
+      ObString expr_str(expr_node->str_len_, expr_node->str_value_);
+      ObObj default_value;
+      if (OB_FAIL(ObSQLUtils::convert_sql_text_to_schema_for_storing(
+                      *allocator_, session_info_->get_dtc_params(), expr_str))) {
+      } else {
+        // store AI expression text where generated-column expression lives
+        default_value.set_varchar(expr_str);
+        default_value.set_collation_type(ObCharset::get_system_collation());
+        default_value.set_collation_level(CS_LEVEL_COERCIBLE);
+        if (OB_FAIL(column.set_cur_default_value(default_value, false))) {
+        } else {
+          column.set_ai_column();
+          // WITH options (sync_mode/max_retries) stored as a JSON string in
+          // comment_ (already serialized in __all_column), format:
+          // {"sync_mode":"async","max_retries":2}
+          ParseNode *opts = node->children_[4];
+          if (OB_NOT_NULL(opts)) {
+            char cfg[512];
+            int64_t clen = 0;
+            clen += snprintf(cfg + clen, sizeof(cfg) - clen, "{");
+            bool first_opt = true;
+            for (int64_t i = 0; OB_SUCC(ret) && i < opts->num_child_; i++) {
+              ParseNode *opt = opts->children_[i];
+              if (OB_NOT_NULL(opt) && opt->type_ == T_AI_COLUMN_OPTION
+                  && opt->num_child_ == 2 && OB_NOT_NULL(opt->children_[0])
+                  && OB_NOT_NULL(opt->children_[1])) {
+                const ObString k(opt->children_[0]->str_len_, opt->children_[0]->str_value_);
+                ObString v;
+                char ibuf[32];
+                if (opt->children_[1]->type_ == T_INT) {
+                  const int ilen = snprintf(ibuf, sizeof(ibuf), "%ld", opt->children_[1]->value_);
+                  v = ObString(ilen, ibuf);
+                } else {
+                  v = ObString(opt->children_[1]->str_len_, opt->children_[1]->str_value_);
+                }
+                clen += snprintf(cfg + clen, sizeof(cfg) - clen, "%s\"%.*s\":\"%.*s\"",
+                                 first_opt ? "" : ",", k.length(), k.ptr(), v.length(), v.ptr());
+                first_opt = false;
+              }
+            }
+            clen += snprintf(cfg + clen, sizeof(cfg) - clen, "}");
+            if (OB_SUCC(ret) && clen > 0 && clen < 512) {
+              if (OB_FAIL(column.set_comment(ObString(static_cast<int32_t>(clen), cfg)))) {
+                LOG_WARN("set ai column config failed", K(ret));
+              }
+            }
+          }
+        }
+      }
+    }
+  }
   if (OB_SUCC(ret)) {
     ParseNode *attrs_node = node->children_[2];
     if (attrs_node != NULL) {
@@ -1928,8 +1985,9 @@ int ObDDLResolver::resolve_column_definition(ObColumnSchemaV2 &column,
     // Specify the position of the column for add column syntax
     if (OB_SUCC(ret)) {
       ParseNode *pos_node = NULL;
-      if (OB_UNLIKELY(GEN_COLUMN_DEFINITION_NUM_CHILD == node->num_child_)) {
-        // generated column with pos_column
+      if (OB_UNLIKELY(GEN_COLUMN_DEFINITION_NUM_CHILD == node->num_child_
+                      || AI_COLUMN_DEFINITION_NUM_CHILD == node->num_child_)) {
+        // generated / AI column with pos_column
         pos_node = node->children_[5];
       } else {
         // normal column with pos_column

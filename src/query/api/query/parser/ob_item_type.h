@@ -2280,6 +2280,10 @@ typedef enum ObItemType
   T_READ_PARQUET_EXPRESSION = 4923,
   T_GLOB_EXPRESSION = 4924,
   T_COPY_TO_EXPRESSION = 4925,
+  T_AI_COLUMN_DEF = 4926,
+  T_AI_COLUMN_OPTION = 4927,
+  T_RETRY_AI_COLUMN = 4928,
+  T_SHOW_AI_COLUMNS = 4929,
   T_MAX //Attention: add a new type before T_MAX
 } ObItemType;
 
