@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
+%expect 0
+%lex-param {void *YYLEX_PARAM}
 %define api.pure
 %parse-param {ParseResult *result}
 %name-prefix "obsql_mysql_yy"
 %locations
-%verbose
 %error-verbose
 %code requires {
 #include "parse_node.h"
@@ -37,8 +38,8 @@
 }
 
 %{
-#include "../../../src/sql/parser/sql_parser_mysql_mode_lex.h"
-#include "../../../src/sql/parser/sql_parser_base.h"
+#include "sql/parser/sql_parser_mysql_mode_lex.h"
+#include "sql/parser/sql_parser_base.h"
 
 #define GEN_EXPLAN_STMT(no_use, explain_stmt, explain_type, display_type, stmt, into_table, set_statement_id) \
   (void)(no_use); \
@@ -293,6 +294,7 @@ END_P SET_VAR DELIMITER
         GLOBAL_ALIAS
 
         HASH HEAP HELP HISTOGRAM HOUR HIDDEN HYBRID HYBRID_HIST HYBRID_SEARCH
+        READ_CSV READ_JSON READ_NDJSON READ_PARQUET GLOB
 
         IDENTIFIED IK_MODE ILOG IMMEDIATE IMPORT INCLUDING INCR INDEXES INFO
         INNODB INPLACE INSERT_METHOD INSTANT INSTANCE INVOKER IO IO_THREAD IPC ISOLATE ISOLATION ISSUER
@@ -482,7 +484,6 @@ END_P SET_VAR DELIMITER
 %type <node> alter_foreign_key_action
 %type <node> analyze_stmt for_all opt_indexed_hiddden opt_size_clause size_clause for_columns for_columns_list for_columns_item column_clause
 %type <node> optimize_stmt
-%type <node> dump_memory_stmt
 %type <node> create_savepoint_stmt rollback_savepoint_stmt release_savepoint_stmt
 %type <node> opt_qb_name opt_qb_name_list_with_quotes parallel_hint pq_set_hint_desc pq_subquery_hint_desc
 %type <node> get_format_unit
@@ -511,6 +512,7 @@ END_P SET_VAR DELIMITER
 %type <node> column_list_with_boost with_param_column_ref
 %type <node> es_sql_opt
 %type <node> hybrid_search_expr hybrid_search_param
+%type <node> read_csv_expr read_json_expr read_parquet_expr glob_expr
 %type <node> vector_similarity_expr vector_similarity_metric
 %type <node> algorithm_opt lock_opt
 %type <node> flush_privileges_stmt opt_flush_privileges_scope
@@ -649,7 +651,6 @@ stmt:
   | load_data_stmt          { $$ = $1; check_question_mark($$, result); }
   | optimize_stmt     { $$ = $1; check_question_mark($$, result); }
   | flush_privileges_stmt { $$ = $1; check_question_mark($$, result); }
-  | dump_memory_stmt  { $$ = $1; check_question_mark($$, result); }
   | get_diagnostics_stmt    { $$ = $1; question_mark_issue($$, result); }
   | pl_expr_stmt            { $$ = $1; question_mark_issue($$, result); }
   | method_opt
@@ -10848,6 +10849,22 @@ tbl_name
 {
   $$ = $1;
 }
+| read_csv_expr
+{
+  $$ = $1;
+}
+| read_json_expr
+{
+  $$ = $1;
+}
+| read_parquet_expr
+{
+  $$ = $1;
+}
+| glob_expr
+{
+  $$ = $1;
+}
 ;
 
 tbl_name:
@@ -15358,43 +15375,6 @@ OPTIMIZE TABLE table_list
   malloc_non_terminal_node($$, result->malloc_pool_, T_OPTIMIZE_TABLE, 1, tables);
 }
 
-dump_memory_stmt:
-DUMP ENTITY ALL
-{
-  malloc_terminal_node($$, result->malloc_pool_, T_TEMPORARY);
-  $$->value_ = 0;
-  malloc_non_terminal_node($$, result->malloc_pool_, T_DUMP_MEMORY, 1, $$);
-}
-|
-DUMP ENTITY P_ENTITY COMP_EQ STRING_VALUE ',' SLOT_IDX COMP_EQ INTNUM
-{
-  malloc_non_terminal_node($$, result->malloc_pool_, T_TEMPORARY, 2, $5, $9);
-  $$->value_ = 1;
-  malloc_non_terminal_node($$, result->malloc_pool_, T_DUMP_MEMORY, 1, $$);
-}
-|
-DUMP CHUNK ALL
-{
-  malloc_terminal_node($$, result->malloc_pool_, T_TEMPORARY);
-  $$->value_ = 2;
-  malloc_non_terminal_node($$, result->malloc_pool_, T_DUMP_MEMORY, 1, $$);
-}
-|
-DUMP CHUNK CTX_ID COMP_EQ relation_name_or_string
-{
-  malloc_non_terminal_node($$, result->malloc_pool_, T_TEMPORARY, 1, $5);
-  $$->value_ = 3;
-  malloc_non_terminal_node($$, result->malloc_pool_, T_DUMP_MEMORY, 1, $$);
-}
-|
-DUMP CHUNK P_CHUNK COMP_EQ STRING_VALUE
-{
-  malloc_non_terminal_node($$, result->malloc_pool_, T_TEMPORARY, 1, $5);
-  $$->value_ = 4;
-  malloc_non_terminal_node($$, result->malloc_pool_, T_DUMP_MEMORY, 1, $$);
-}
-
-
 /*****************************************************************************
  *
  *	ALTER SYSTEM grammar
@@ -15477,12 +15457,6 @@ alter_with_opt_hint SYSTEM MINOR FREEZE opt_tablet_id
   malloc_terminal_node(type, result->malloc_pool_, T_INT);
   type->value_ = 2;
   malloc_non_terminal_node($$, result->malloc_pool_, T_FREEZE, 3, type, NULL, $5);
-}
-|
-alter_with_opt_hint SYSTEM REFRESH MEMORY STAT
-{
-  (void)($1);
-  malloc_non_terminal_node($$, result->malloc_pool_, T_REFRESH_MEMORY_STAT, 1, NULL);
 }
 |
 alter_with_opt_hint SYSTEM SWITCHOVER TO STANDBY
@@ -17476,6 +17450,103 @@ literal
 | USER_VARIABLE
 {
   $$ = $1;
+}
+;
+
+/* ---- file_sql: read_csv / read_json / read_parquet / glob ---- */
+read_csv_expr:
+READ_CSV '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, NULL, $5);
+}
+| READ_CSV '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, NULL, $6);
+}
+| READ_CSV '(' literal ',' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, $5, $7);
+}
+| READ_CSV '(' literal ',' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, $5, $8);
+}
+| READ_CSV '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, NULL, alias_node);
+}
+| READ_CSV '(' literal ',' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_CSV_EXPRESSION, 3, $3, $5, alias_node);
+}
+;
+
+read_json_expr:
+READ_JSON '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, $5);
+}
+| READ_JSON '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, $6);
+}
+| READ_JSON '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, alias_node);
+}
+| READ_NDJSON '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, $5);
+}
+| READ_NDJSON '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, $6);
+}
+| READ_NDJSON '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_JSON_EXPRESSION, 3, $3, NULL, alias_node);
+}
+;
+
+read_parquet_expr:
+READ_PARQUET '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_PARQUET_EXPRESSION, 3, $3, NULL, $5);
+}
+| READ_PARQUET '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_PARQUET_EXPRESSION, 3, $3, NULL, $6);
+}
+| READ_PARQUET '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_READ_PARQUET_EXPRESSION, 3, $3, NULL, alias_node);
+}
+;
+
+glob_expr:
+GLOB '(' literal ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_GLOB_EXPRESSION, 2, $3, $5);
+}
+| GLOB '(' literal ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_GLOB_EXPRESSION, 2, $3, $6);
+}
+| GLOB '(' literal ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_GLOB_EXPRESSION, 2, $3, alias_node);
 }
 ;
 

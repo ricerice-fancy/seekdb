@@ -211,6 +211,7 @@ public:
   int create_unnest_table_item(TableItem *&table_item, ObString table_name);
   int unnest_table_add_column(TableItem *&table_item, ColumnItem *&col_item, ObString col_name);
   int resolve_hybrid_search_item(const ParseNode &parse_tree, TableItem *&table_item);
+  int resolve_file_scan_item(const ParseNode &parse_tree, TableItem *&table_item);
 
   int fill_same_column_to_using(JoinedTable* &joined_table);
   int get_columns_from_table_item(const TableItem *table_item, common::ObIArray<common::ObString> &column_names);
@@ -865,7 +866,7 @@ protected:
    * For example:
    * with cte (select * from t1) select 1 from dual;
    * If added, the above statement will enter trans_service, and an error will be reported later because it actually detects that the related table's
-   * partition location is empty.
+   * partition target set is empty.
    * */
   bool with_clause_without_record_;
   bool is_prepare_stage_;

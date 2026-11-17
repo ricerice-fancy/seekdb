@@ -249,6 +249,7 @@
 #include "sql/engine/expr/ob_expr_json_contains.h"
 #include "sql/engine/expr/ob_expr_json_contains_path.h"
 #include "sql/engine/expr/ob_expr_json_depth.h"
+#include "sql/engine/expr/ob_expr_read_file_json.h"
 #include "sql/engine/expr/ob_expr_json_keys.h"
 #include "sql/engine/expr/ob_expr_json_search.h"
 #include "sql/engine/expr/ob_expr_json_unquote.h"
@@ -312,7 +313,6 @@
 #include "sql/engine/expr/ob_expr_format_bytes.h"
 #include "sql/engine/expr/ob_expr_format_pico_time.h"
 #include "sql/engine/expr/ob_expr_encrypt.h"
-#include "sql/engine/expr/ob_expr_icu_version.h"
 #include "sql/engine/expr/ob_expr_sql_mode_convert.h"
 #include "sql/engine/expr/ob_expr_prefix_pattern.h"
 #include "sql/engine/expr/ob_expr_extract_value.h"
@@ -797,6 +797,7 @@ void ObExprOperatorFactory::register_expr_operators()
     REG_OP(ObExprJsonContains);
     REG_OP(ObExprJsonContainsPath);
     REG_OP(ObExprJsonDepth);
+    REG_OP(ObExprReadFileJson);
     REG_OP(ObExprJsonKeys);
     REG_OP(ObExprJsonQuote);
     REG_OP(ObExprJsonUnquote);
@@ -900,7 +901,6 @@ void ObExprOperatorFactory::register_expr_operators()
     REG_OP(ObExprCurrentScn);
     REG_OP(ObExprEncode);
     REG_OP(ObExprDecode);
-    REG_OP(ObExprICUVersion);
     REG_OP(ObExprGeneratorFunc);
     REG_OP(ObExprZipf);
     REG_OP(ObExprNormal);
