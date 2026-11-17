@@ -17,12 +17,13 @@ jobs:
             libsqlite3-dev curl bison flex cmake ninja-build clang lld python3
       - name: Build via official build.sh (same as grading platform)
         run: |
+          set -o pipefail
           ./build.sh release --init 2>&1 | tee /tmp/init.log
-          if grep -qiE "error|failed|No such file|not found" /tmp/init.log; then
-            echo "INIT FAILED"; tail -40 /tmp/init.log; exit 1
-          fi
+          INIT_RC=${PIPESTATUS[0]}
+          echo "INIT exit code: $INIT_RC"
+          if [ "$INIT_RC" -ne 0 ]; then echo "INIT FAILED (rc=$INIT_RC)"; tail -40 /tmp/init.log; exit 1; fi
           cd build_release && make -j4 2>&1 | tee /tmp/make.log
-          if grep -qE "error:|Error [0-9]|undefined reference" /tmp/make.log; then
-            echo "MAKE FAILED"; grep -E "error:|Error [0-9]|undefined reference" /tmp/make.log | head -40; exit 1
-          fi
+          MAKE_RC=${PIPESTATUS[0]}
+          echo "MAKE exit code: $MAKE_RC"
+          if [ "$MAKE_RC" -ne 0 ]; then echo "MAKE FAILED (rc=$MAKE_RC)"; tail -60 /tmp/make.log; exit 1; fi
           test -x src/observer/seekdb && echo "CMAKE BUILD OK"
