@@ -245,9 +245,9 @@ int ObOpenAIUtils::ObOpenAIEmbed::get_body(common::ObIAllocator &allocator,
   return ret;
 }
 
-int ObOpenAIUtils::ObOpenAIEmbed::parse_output(common::ObIAllocator &allocator, 
+int ObOpenAIUtils::ObOpenAIEmbed::parse_output(common::ObIAllocator &allocator,
                                                common::ObIJsonBase *http_response,
-                                               common::ObIJsonBase *&result) 
+                                               common::ObIJsonBase *&result)
 {
   int ret = OB_SUCCESS;
   JsonContainerBuilder builder(false);
@@ -259,21 +259,72 @@ int ObOpenAIUtils::ObOpenAIEmbed::parse_output(common::ObIAllocator &allocator,
     if (OB_FAIL(ObAIFuncJsonUtils::get_json_array(allocator, result_array))) {
     } else if (OB_ISNULL(data_node = ObAIFuncJsonUtils::get_value(http_response, "data"))) {
       ret = OB_INVALID_DATA;
+    } else if (data_node->json_type() != ObJsonNodeType::J_ARRAY) {
+      // data must be a json array of embedding objects
+      ret = OB_INVALID_DATA;
     } else {
       ObIJsonBase *data_array = data_node;
-      ObIJsonBase *embedding_node = nullptr;
-      for (int64_t i = 0; OB_SUCC(ret) && i < data_array->element_count(); i++) {
-        if (OB_ISNULL(embedding_node = ObAIFuncJsonUtils::get_value(data_array, i))) {
+      const int64_t data_count = data_array->element_count();
+      // Index-ordered slots: responses may list data items out of order, and
+      // each item carries the original input position in its "index" field.
+      ObArray<ObIJsonBase *> embeddings;
+      int64_t fallback_pos = 0;
+      for (int64_t i = 0; OB_SUCC(ret) && i < data_count; i++) {
+        if (OB_FAIL(embeddings.push_back(nullptr))) {
+          LOG_WARN("failed to init embedding slots", K(ret));
+        }
+      }
+      for (int64_t i = 0; OB_SUCC(ret) && i < data_count; i++) {
+        ObIJsonBase *item = ObAIFuncJsonUtils::get_value(data_array, i);
+        ObIJsonBase *index_node = nullptr;
+        ObIJsonBase *embedding = nullptr;
+        if (OB_ISNULL(item) || item->json_type() != ObJsonNodeType::J_OBJECT) {
           ret = OB_INVALID_DATA;
-        } else if (embedding_node->json_type() != ObJsonNodeType::J_OBJECT) {
+        } else if (OB_ISNULL(embedding = ObAIFuncJsonUtils::get_value(item, "embedding"))) {
+          ret = OB_INVALID_DATA;
+        } else if (embedding->json_type() != ObJsonNodeType::J_ARRAY
+                   || embedding->element_count() <= 0) {
+          // an embedding must be a non-empty json array
           ret = OB_INVALID_DATA;
         } else {
-          ObIJsonBase *embedding_obj = embedding_node;
-          ObIJsonBase *embedding = ObAIFuncJsonUtils::get_value(embedding_obj, "embedding");
-          if (OB_ISNULL(embedding)) {
-            ret = OB_INVALID_DATA;
-          } else if (OB_FAIL(ObAIFuncJsonUtils::append_value(allocator, builder, embedding))) {
+          // element legality: every element must be a json number
+          for (int64_t k = 0; OB_SUCC(ret) && k < embedding->element_count(); k++) {
+            ObIJsonBase *element = ObAIFuncJsonUtils::get_value(embedding, k);
+            if (OB_ISNULL(element)) {
+              ret = OB_INVALID_DATA;
+            } else {
+              const ObJsonNodeType element_type = element->json_type();
+              if (element_type != ObJsonNodeType::J_INT && element_type != ObJsonNodeType::J_UINT
+                  && element_type != ObJsonNodeType::J_DOUBLE && element_type != ObJsonNodeType::J_DECIMAL) {
+                ret = OB_INVALID_DATA;
+              }
+            }
           }
+          if (OB_SUCC(ret)) {
+            int64_t slot = -1;
+            index_node = ObAIFuncJsonUtils::get_value(item, "index");
+            if (OB_NOT_NULL(index_node) && index_node->json_type() == ObJsonNodeType::J_INT) {
+              slot = index_node->get_int();
+            } else {
+              // no usable index: keep listing order
+              while (fallback_pos < data_count && OB_NOT_NULL(embeddings.at(fallback_pos))) {
+                fallback_pos++;
+              }
+              slot = fallback_pos;
+            }
+            if (slot < 0 || slot >= data_count || OB_NOT_NULL(embeddings.at(slot))) {
+              ret = OB_INVALID_DATA;
+            } else {
+              embeddings.at(slot) = embedding;
+            }
+          }
+        }
+      }
+      // every slot must be filled; emit embeddings in index order
+      for (int64_t i = 0; OB_SUCC(ret) && i < data_count; i++) {
+        if (OB_ISNULL(embeddings.at(i))) {
+          ret = OB_INVALID_DATA;
+        } else if (OB_FAIL(ObAIFuncJsonUtils::append_value(allocator, builder, embeddings.at(i)))) {
         }
       }
       if (OB_FAIL(ret)) {
