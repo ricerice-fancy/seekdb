@@ -57,8 +57,7 @@ int ObExprAIPrompt::calc_result_typeN(ObExprResType &type,
   if (ob_is_string_tc(template_type.get_type())) {
     types_stack[0].set_calc_type(ObVarcharType);
     types_stack[0].set_calc_collation_type(CS_TYPE_UTF8MB4_BIN);
-  } else if (ob_is_text_tc(template_type.get_type())
-             && CS_TYPE_BINARY != template_type.get_collation_type()) {
+  } else if (ob_is_text_tc(template_type.get_type())) {
     // TEXT/LONGTEXT templates keep their native text type so that long
     // templates are not truncated by a varchar cast; blob values stay rejected.
     types_stack[0].set_calc_collation_type(CS_TYPE_UTF8MB4_BIN);
@@ -70,8 +69,7 @@ int ObExprAIPrompt::calc_result_typeN(ObExprResType &type,
     if (ob_is_string_tc(types_stack[i].get_type())) {
       types_stack[i].set_calc_type(ObVarcharType);
       types_stack[i].set_calc_collation_type(CS_TYPE_UTF8MB4_BIN);
-    } else if (ob_is_text_tc(types_stack[i].get_type())
-               && CS_TYPE_BINARY != types_stack[i].get_collation_type()) {
+    } else if (ob_is_text_tc(types_stack[i].get_type())) {
       // TEXT/LONGTEXT parameters, same policy as the template.
       types_stack[i].set_calc_collation_type(CS_TYPE_UTF8MB4_BIN);
     } else if (ob_is_json(types_stack[i].get_type())) {
